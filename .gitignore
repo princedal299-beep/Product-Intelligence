@@ -1,0 +1,12 @@
+/Export_Merchandise_Feeds*.csv
+/data/catalog/
+/data/*.sqlite3
+api/keys/*.pem
+keys/*.pem
+__pycache__/
+*.py[cod]
+.env
+logs/
+*.log
+.pytest_cache/
+.deepeval/
