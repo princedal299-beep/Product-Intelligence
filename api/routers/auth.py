@@ -1,5 +1,6 @@
 """Authentication and user session endpoints."""
 
+import logging
 import os
 import sqlite3
 
@@ -19,6 +20,7 @@ from api.store.user_repository import (
     normalize_email,
 )
 
+logger = logging.getLogger("api.auth")
 router = APIRouter(tags=["Authentication"])
 
 
@@ -38,12 +40,15 @@ def register(user: UserCreate):
     try:
         created_user = create_user(user.email, user.password)
     except ValueError as exc:
+        logger.warning("Registration validation error for '%s': %s", user.email, exc)
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except sqlite3.IntegrityError as exc:
+        logger.warning("Registration conflict: email '%s' already exists", user.email)
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="An account with this email already exists.",
         ) from exc
+    logger.info("New user registered: %s (id=%s)", created_user["email"], created_user["id"])
     return {
         "id": created_user["id"],
         "email": created_user["email"],
@@ -60,18 +65,21 @@ def _process_login(form_data: OAuth2PasswordRequestForm):
     try:
         db_user = get_user_by_email(form_data.username)
     except ValueError as exc:
+        logger.warning("Login failed (invalid email format) for: '%s'", form_data.username)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid credentials",
         ) from exc
 
     if not db_user or not verify_password(form_data.password, db_user["password_hash"]):
+        logger.warning("Login failed (invalid credentials) for user: '%s'", form_data.username)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid credentials",
         )
 
     role = db_user["role"]
+    logger.info("User logged in successfully: '%s' (role=%s)", form_data.username, role)
     return {
         "access_token": create_user_token(db_user["id"], role),
         "token_type": "bearer",

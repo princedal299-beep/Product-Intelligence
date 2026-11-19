@@ -10,3 +10,17 @@ logs/
 *.log
 .pytest_cache/
 .deepeval/
+
+# Virtual Environments
+venv/
+.venv/
+env/
+ENV/
+
+pip-*
+build/
+dist/
+*.egg-info/
+
+
+*.zip

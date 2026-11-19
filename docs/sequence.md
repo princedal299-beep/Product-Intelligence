@@ -193,7 +193,7 @@ sequenceDiagram
 
             opt Adaptive History Summarization (Message Count >= 6)
                 Graph->>Graph: summarize_history_node: LLM condenses older turns
-                Graph->>Graph: Remove older messages with RemoveMessage; keep last 4 clean turns
+                Graph->>Graph: Remove older messages with RemoveMessage and keep last 4 clean turns
                 Note over Graph: If running summary exceeds ~300 words, recursively re-summarize.
             end
 

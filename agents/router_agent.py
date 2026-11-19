@@ -1,3 +1,4 @@
+import logging
 import os
 import re
 from typing import Literal
@@ -7,6 +8,8 @@ from langchain_groq import ChatGroq
 from core.llm_factory import get_llm
 from core.prompts import ROUTER_PROMPT
 from workflow.memory import format_recent_conversation
+
+logger = logging.getLogger("agent.router")
 
 
 def extract_sku_candidate(text: str) -> str | None:
@@ -109,6 +112,19 @@ class RouteDecision(BaseModel):
     filters: ProductFilters | None = None
 
 
+def _heuristic_fallback_route(query: str, state: dict) -> RouteDecision:
+    sku = extract_sku_candidate(query)
+    if sku:
+        return RouteDecision(
+            route="product_details",
+            filters=ProductFilters(product_id=sku, parent_sku=sku),
+        )
+    return RouteDecision(
+        route="product_search",
+        filters=ProductFilters(query=query),
+    )
+
+
 def load_router_prompt() -> str:
     return ROUTER_PROMPT
 
@@ -126,12 +142,36 @@ def route_query(state):
     )
     recent_chat = format_recent_conversation(messages, current_query=query, limit=4)
 
-    decision = classifier.invoke(
-        [
-            SystemMessage(content=f"{ROUTER_PROMPT}{summary_text}{recent_chat}"),
-            HumanMessage(content=query),
-        ]
-    )
+    logger.debug("Routing query: '%.60s' (role=%s)", query, state.get("role"))
+    decision = None
+    try:
+        decision = classifier.invoke(
+            [
+                SystemMessage(content=f"{ROUTER_PROMPT}{summary_text}{recent_chat}"),
+                HumanMessage(content=query),
+            ]
+        )
+        logger.debug("Router LLM returned decision: route=%s, metric=%s", decision.route, decision.metric)
+    except Exception as exc:
+        logger.warning(
+            "Primary Router LLM classifier failed for query '%.60s': %s. Attempting fallback model...",
+            query,
+            exc,
+        )
+        try:
+            fallback_model = os.getenv("COMPOSER_LLM_MODEL", "gemini-3.5-flash-lite")
+            fallback_llm = get_llm(model_name=fallback_model, temperature=0, max_retries=1)
+            fallback_classifier = fallback_llm.with_structured_output(RouteDecision)
+            decision = fallback_classifier.invoke(
+                [
+                    SystemMessage(content=f"{ROUTER_PROMPT}{summary_text}{recent_chat}"),
+                    HumanMessage(content=query),
+                ]
+            )
+            logger.info("Fallback Router LLM succeeded: route=%s", decision.route)
+        except Exception as fallback_exc:
+            logger.error("Fallback Router LLM failed as well: %s", fallback_exc, exc_info=True)
+            decision = _heuristic_fallback_route(query, state)
 
     route = decision.route
     user_role = (state.get("role") or "").upper()
@@ -198,4 +238,5 @@ def route_query(state):
                 result["filters"]["parent_sku"] = candidate
                 break
 
+    logger.info("Router final plan: %s (filters=%s)", result.get("plan"), result.get("filters"))
     return result

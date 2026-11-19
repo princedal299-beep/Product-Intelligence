@@ -1,9 +1,12 @@
 import json
+import logging
 import os
 from langchain_core.messages import HumanMessage, SystemMessage
 from core.llm_factory import extract_text_content, get_llm
 from core.prompts import get_composer_prompt
 from workflow.memory import format_recent_conversation
+
+logger = logging.getLogger("agent.composer")
 
 
 def _format_analytics_table(title: str, rows: list[dict]) -> str:
@@ -213,11 +216,18 @@ def compose_catalog_response(
         ),
         HumanMessage(content=query),
     ]
-    response = llm.invoke(prompt)
-    return extract_text_content(response.content)
+    try:
+        response = llm.invoke(prompt)
+        text = extract_text_content(response.content)
+        logger.info("Composer generated response (len=%d) for query='%.50s'", len(text), query)
+        return text
+    except Exception as exc:
+        logger.error("Composer LLM call failed for query='%.50s': %s", query, exc, exc_info=True)
+        raise
 
 
 def composer_agent(state: dict) -> dict:
+    logger.debug("Entering composer_agent with %d documents", len(state.get("documents", [])))
     generation = compose_catalog_response(
         query=state.get("query", ""),
         role=state.get("role", "Shopper"),

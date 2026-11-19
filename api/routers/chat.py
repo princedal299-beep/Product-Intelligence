@@ -8,9 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from agents.router_agent import route_query
 from workflow.graph import run_workflow
-from workflow.memory import checkpoint_saver
 from api.roles import SHOPPER
 from api.security.tokens import create_mcp_token
 from api.store.audit import record_audit
@@ -51,34 +49,40 @@ async def chat_endpoint(
     if not thread_id or thread_id == "default":
         thread_id = f"user_{user_id}"
 
-    existing_messages = []
-    existing_summary = ""
-    existing_active_results = []
+    logger.info("Chat query from user='%s' (role=%s): '%s'", user_id, role, query[:60])
+
     try:
-        tuple_state = checkpoint_saver.get_tuple({"configurable": {"thread_id": str(thread_id)}})
-        if tuple_state and tuple_state.checkpoint:
-            channel_vals = tuple_state.checkpoint.get("channel_values", {})
-            existing_messages = channel_vals.get("messages", [])
-            existing_summary = channel_vals.get("conversation_summary", "")
-            existing_active_results = channel_vals.get("active_results", [])
-    except Exception:
-        pass
+        mcp_token = create_mcp_token(user_id, role)
+        workflow_result = await run_workflow(
+            query=query,
+            role=role,
+            login_token=mcp_token,
+            thread_id=thread_id,
+        )
+    except ValueError as exc:
+        logger.warning(f"req_id={request_id} Invalid request credentials: {exc}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid request credentials: {exc}",
+        ) from exc
+    except PermissionError as exc:
+        logger.warning(f"req_id={request_id} Permission denied: {exc}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Permission denied: {exc}",
+        ) from exc
+    except Exception as exc:
+        logger.error(f"req_id={request_id} Upstream chat workflow error: {exc}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Service unavailable or upstream processing error: {exc}",
+        ) from exc
 
-    logger.info(f"req_id={request_id} chat_query received user_id={user_id} role={role} thread_id={thread_id}")
-    decision = await asyncio.to_thread(
-        route_query,
-        {
-            "query": query,
-            "role": role,
-            "messages": existing_messages,
-            "conversation_summary": existing_summary,
-            "active_results": existing_active_results,
-        },
-    )
-    plan = decision.get("plan")
-
+    plan = workflow_result.get("plan")
     if plan == "forbidden":
-        logger.warning(f"req_id={request_id} forbidden_access user_id={user_id} role={role} attempted_route=catalog_analytics")
+        logger.warning(
+            f"req_id={request_id} forbidden_access user_id={user_id} role={role} attempted_route=catalog_analytics"
+        )
         record_audit(
             request_id,
             str(user_id),
@@ -92,30 +96,7 @@ async def chat_endpoint(
             detail="Catalog analytics and numerical metrics are available to merchandisers and admins only.",
         )
 
-    try:
-        mcp_token = create_mcp_token(user_id,role)
-        answer = await run_workflow(
-            query=query,
-            role=role,
-            login_token=mcp_token,
-            thread_id=thread_id,
-            initial_decision=decision,
-        )
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid request credentials: {exc}",
-        ) from exc
-    except PermissionError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail=f"Permission denied: {exc}",
-        ) from exc
-    except Exception as exc:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"Service unavailable or upstream processing error: {exc}",
-        ) from exc
+    answer = workflow_result.get("generation", "No response generated.")
 
     
     # Step 3: Determine sources for response

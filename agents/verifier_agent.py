@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 import re
 
@@ -7,6 +8,8 @@ from pydantic import BaseModel, Field
 
 from core.llm_factory import get_llm
 from core.prompts import VERIFIER_JUDGE_PROMPT
+
+logger = logging.getLogger("agent.verifier")
 
 
 class VerificationResult(BaseModel):
@@ -131,12 +134,19 @@ def verify_answer(state):
             SystemMessage(content=VERIFIER_JUDGE_PROMPT),
             HumanMessage(content=f"Question: {query}\n\nContext:\n{context}\n\nDraft Answer:\n{generation}"),
         ])
-        return {
+        verdict = {
             "verification_status": "PASS" if result.is_valid else "FAIL",
             "verification_feedback": result.feedback,
             "retry_count": retry_count if result.is_valid else retry_count + 1,
         }
-    except Exception:
+        logger.info("Verifier LLM judged: status=%s, feedback=%s", verdict["verification_status"], verdict["verification_feedback"])
+        return verdict
+    except Exception as exc:
+        logger.warning(
+            "Verifier LLM check encountered an error, falling back to code check: %s",
+            exc,
+            exc_info=True,
+        )
         return {
             "verification_status": "PASS",
             "verification_feedback": f"Code check passed ({code_reason}).",

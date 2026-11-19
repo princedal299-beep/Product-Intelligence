@@ -4,7 +4,6 @@ echo ========================================================
 echo Starting Product Intelligence Assistant Services...
 echo ========================================================
 
-:: Activate virtual environment if present
 if exist "venv\Scripts\activate.bat" (
     call venv\Scripts\activate.bat
 ) else if exist ".venv\Scripts\activate.bat" (
@@ -12,7 +11,7 @@ if exist "venv\Scripts\activate.bat" (
 )
 
 echo [1/3] Launching FastAPI Backend on port 8000...
-start "FastAPI Backend (Port 8000)" cmd /k "uvicorn api.app:app --host 127.0.0.1 --port 8000 --reload"
+start "FastAPI Backend (Port 8000)" cmd /k "python -m uvicorn api.app:app --host 127.0.0.1 --port 8000 --reload"
 timeout /t 2 /nobreak >nul
 
 echo [2/3] Launching MCP Tool Server on port 8001...
@@ -20,7 +19,7 @@ start "MCP Server (Port 8001)" cmd /k "python mcp_service/tools.py"
 timeout /t 2 /nobreak >nul
 
 echo [3/3] Launching Streamlit UI on port 8501...
-start "Streamlit UI (Port 8501)" cmd /k "streamlit run main.py"
+start "Streamlit UI (Port 8501)" cmd /k "python -m streamlit run main.py --server.address=127.0.0.1"
 
 echo ========================================================
 echo All 3 services launched successfully!

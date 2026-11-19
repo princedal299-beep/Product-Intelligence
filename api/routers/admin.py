@@ -1,6 +1,6 @@
-"""Admin endpoints for user role management, audit log inspection, and catalog reindexing."""
-
+import logging
 import os
+import secrets
 from typing import Literal, Optional
 
 from dotenv import load_dotenv
@@ -9,30 +9,47 @@ from pydantic import BaseModel
 
 from api.dependencies import get_admin
 from api.roles import ADMIN
+from api.security.passwords import verify_password
 from api.security.tokens import create_user_token
 from api.store.audit import get_audit_logs
 from api.store.user_repository import get_user_by_email, set_user_role
 
 load_dotenv()
 
+logger = logging.getLogger("api.admin")
 router = APIRouter(prefix="/admin", tags=["Admin & User Management"])
 
 
 def admin_login(username: str, password: str) -> dict:
     admin_email = os.environ.get("ADMIN_EMAIL", "").strip()
-    admin_password = os.environ.get("ADMIN_PASSWORD", "")
+    admin_password_hash = os.environ.get("ADMIN_PASSWORD_HASH", "").strip()
+    legacy_admin_password = os.environ.get("ADMIN_PASSWORD", "").strip()
 
-    if (
-        not admin_email
-        or not admin_password
-        or username.strip().casefold() != admin_email.casefold()
-        or password != admin_password
-    ):
+    if not admin_email or username.strip().casefold() != admin_email.casefold():
+        logger.warning("Admin login rejected: Username '%s' does not match ADMIN_EMAIL", username)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid credentials",
         )
 
+    is_valid = False
+    if admin_password_hash:
+        try:
+            is_valid = verify_password(password, admin_password_hash)
+        except Exception as exc:
+            logger.error("Admin password hash verification failed with exception: %s", exc, exc_info=True)
+            is_valid = False
+    elif legacy_admin_password:
+        is_valid = secrets.compare_digest(password, legacy_admin_password)
+
+    if not is_valid:
+        logger.warning("Admin login rejected: Invalid password for '%s'", username)
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid credentials",
+        )
+
+    logger.info("Admin login succeeded for '%s'", username)
     return {
         "access_token": create_user_token("admin", ADMIN),
         "token_type": "bearer",

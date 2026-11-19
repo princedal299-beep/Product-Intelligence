@@ -1,5 +1,3 @@
-
-import logging
 from pathlib import Path
 import time
 import uuid
@@ -13,39 +11,9 @@ LOGS_DIR = PROJECT_ROOT / "logs"
 LOGS_DIR.mkdir(parents=True, exist_ok=True)
 LOG_FILE = LOGS_DIR / "api.log"
 
-logger = logging.getLogger("api.access")
-logger.setLevel(logging.INFO)
-logger.propagate = False
+from core.logger import current_request_id, get_logger
 
-formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s")
-
-has_file_handler = any(
-    isinstance(h, logging.FileHandler) and Path(getattr(h, "baseFilename", "")) == LOG_FILE
-    for h in logger.handlers
-)
-if not has_file_handler:
-    file_handler = logging.FileHandler(LOG_FILE, encoding="utf-8")
-    file_handler.setFormatter(formatter)
-    logger.addHandler(file_handler)
-
-has_stream_handler = any(
-    isinstance(h, logging.StreamHandler) and not isinstance(h, logging.FileHandler)
-    for h in logger.handlers
-)
-if not has_stream_handler:
-    stream_handler = logging.StreamHandler()
-    stream_handler.setFormatter(formatter)
-    logger.addHandler(stream_handler)
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-    handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler(LOG_FILE, encoding="utf-8"),
-    ],
-    force=True,
-)
+logger = get_logger("api.access")
 
 RATE_LIMIT_MAX_REQUESTS = 20
 RATE_LIMIT_WINDOW_SECONDS = 60
@@ -55,25 +23,44 @@ class RequestIdAndLoggingMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         request_id = request.headers.get("X-Request-ID") or uuid.uuid4().hex
         request.state.request_id = request_id
+        token = current_request_id.set(request_id)
         start_time = time.perf_counter()
+
+        path = request.url.path
+        is_api = not path.startswith(("/docs", "/openapi.json", "/favicon.ico"))
+
+        if is_api:
+            logger.info("--> START %s %s", request.method, path)
 
         try:
             response: Response = await call_next(request)
             duration_ms = (time.perf_counter() - start_time) * 1000
             response.headers["X-Request-ID"] = request_id
 
-            logger.info(
-                f"req_id={request_id} method={request.method} path={request.url.path} "
-                f"status={response.status_code} duration={duration_ms:.1f}ms"
-            )
+            if is_api:
+                status_label = "DONE" if response.status_code < 400 else f"WARN({response.status_code})"
+                logger.info(
+                    "<-- %s  %s %s | status=%d | duration=%.1fms",
+                    status_label,
+                    request.method,
+                    path,
+                    response.status_code,
+                    duration_ms,
+                )
             return response
         except Exception as exc:
             duration_ms = (time.perf_counter() - start_time) * 1000
             logger.error(
-                f"req_id={request_id} method={request.method} path={request.url.path} "
-                f"error={exc} duration={duration_ms:.1f}ms"
+                "<-- FAIL  %s %s | status=500 | duration=%.1fms | error=%s",
+                request.method,
+                path,
+                duration_ms,
+                exc,
+                exc_info=True,
             )
             raise exc
+        finally:
+            current_request_id.reset(token)
 
 
 class RateLimitMiddleware(BaseHTTPMiddleware):

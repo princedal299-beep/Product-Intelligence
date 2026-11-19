@@ -19,6 +19,8 @@ import jwt
 from api.keys.key_loader import PUBLIC_KEY
 from mcp.server.mcpserver import Context, MCPServer
 
+logger = logging.getLogger("mcp.service")
+
 mcp = MCPServer("product-intelligence")
 CATALOG_DIR = PROJECT_ROOT / "data" / "catalog"
 CATALOG_DATABASE = CATALOG_DIR / "catalog.sqlite3"
@@ -36,6 +38,7 @@ def _authorize(ctx, scope):
             break
     scheme, _, token = authorization.partition(" ")
     if scheme.casefold() != "bearer" or not token:
+        logger.warning("MCP authorization rejected: Missing or invalid Bearer scheme")
         raise PermissionError("A bearer token is required.")
 
     try:
@@ -46,12 +49,14 @@ def _authorize(ctx, scope):
             options={"require": ["exp", "sub", "scope"], "verify_aud": False},
         )
     except jwt.InvalidTokenError as exc:
+        logger.warning("MCP authorization rejected: Token invalid or expired: %s", exc)
         raise PermissionError("The bearer token is invalid or expired.") from exc
 
     scopes = claims["scope"]
     if isinstance(scopes, str):
         scopes = scopes.split()
     if not isinstance(scopes, list) or scope not in scopes:
+        logger.warning("MCP authorization rejected: Token scopes %s do not include required scope '%s'", scopes, scope)
         raise PermissionError(f"The token does not grant {scope}.")
 
 
@@ -159,19 +164,24 @@ def _build_filter_conditions(
         params.extend((val, val_alt, f"%{_like(val)}%"))
 
     if stone_type and stone_type.strip():
-        st = _like(stone_type.strip())
-        conditions.append(
-            """(
-                EXISTS (
-                    SELECT 1 FROM json_each(products.attributes_json)
-                    WHERE lower(key) GLOB 'stone[0-9]*_name'
-                      AND lower(CAST(value AS TEXT)) LIKE ? ESCAPE '\\'
-                )
-                OR lower(products.title) LIKE ? ESCAPE '\\'
-                OR lower(products.search_text) LIKE ? ESCAPE '\\'
-            )"""
-        )
-        params.extend([f"%{st}%", f"%{st}%", f"%{st}%"])
+        raw_stones = re.split(r"[,/&]|\band\b|\bor\b", stone_type, flags=re.IGNORECASE)
+        stones = [s.strip() for s in raw_stones if s.strip()] or [stone_type.strip()]
+        stone_clauses = []
+        for s in stones:
+            st = _like(s)
+            stone_clauses.append(
+                """(
+                    EXISTS (
+                        SELECT 1 FROM json_each(products.attributes_json)
+                        WHERE lower(key) GLOB 'stone[0-9]*_name'
+                          AND lower(CAST(value AS TEXT)) LIKE ? ESCAPE '\\'
+                    )
+                    OR lower(products.title) LIKE ? ESCAPE '\\'
+                    OR lower(products.search_text) LIKE ? ESCAPE '\\'
+                )"""
+            )
+            params.extend([f"%{st}%", f"%{st}%", f"%{st}%"])
+        conditions.append(f"({' OR '.join(stone_clauses)})")
 
     if min_price is not None:
         conditions.append("price_usd >= ?")
@@ -239,11 +249,14 @@ def search_products(
             q_esc = _like(query.strip())
             relevance_clauses.append(f"CASE WHEN lower(title) LIKE '%{q_esc}%' THEN 0 ELSE 1 END")
         if stone_type and stone_type.strip():
-            st_esc = _like(stone_type.strip())
-            relevance_clauses.append(f"CASE WHEN lower(title) LIKE '%{st_esc}%' THEN 0 ELSE 1 END")
-            relevance_clauses.append(
-                f"CASE WHEN lower(COALESCE(json_extract(attributes_json, '$.stone1_name'), '')) LIKE '%{st_esc}%' THEN 0 ELSE 1 END"
-            )
+            raw_stones = re.split(r"[,/&]|\band\b|\bor\b", stone_type, flags=re.IGNORECASE)
+            stones = [s.strip() for s in raw_stones if s.strip()] or [stone_type.strip()]
+            for s in stones:
+                st_esc = _like(s)
+                relevance_clauses.append(f"CASE WHEN lower(title) LIKE '%{st_esc}%' THEN 0 ELSE 1 END")
+                relevance_clauses.append(
+                    f"CASE WHEN lower(COALESCE(json_extract(attributes_json, '$.stone1_name'), '')) LIKE '%{st_esc}%' THEN 0 ELSE 1 END"
+                )
         relevance_clauses.append("CASE WHEN stock_status = 'in stock' THEN 0 ELSE 1 END")
         relevance_clauses.append("CASE WHEN image_path IS NOT NULL AND image_path LIKE 'http%' THEN 0 ELSE 1 END")
         relevance_clauses.append("price_usd ASC, product_id ASC")
@@ -279,6 +292,7 @@ def search_products(
         conn.row_factory = sqlite3.Row
         rows = conn.execute(sql, [*params, limit]).fetchall()
 
+    logger.info("MCP search_products matched %d products for query='%s'", len(rows), query)
     return [_product(row) for row in rows]
 
 
@@ -309,6 +323,7 @@ def get_product(ctx: Context, product_id: str):
             (clean_id, clean_id, clean_id),
         ).fetchone()
 
+    logger.info("MCP get_product for '%s': found=%s", clean_id, row is not None)
     return _product(row) if row else None
 
 
@@ -450,4 +465,7 @@ def catalog_schema():
 
 
 if __name__ == "__main__":
+    from core.logger import setup_logging
+    setup_logging()
+    logger.info("Starting MCP server on http://127.0.0.1:8001/mcp")
     mcp.run(transport="streamable-http", host="127.0.0.1", port=8001)

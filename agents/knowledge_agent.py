@@ -1,10 +1,13 @@
 import json
+import logging
 import os
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from core.llm_factory import extract_text_content, get_llm
 from core.prompts import KNOWLEDGE_BASE
 from workflow.memory import format_recent_conversation
+
+logger = logging.getLogger("agent.knowledge")
 
 
 def load_knowledge_ques() -> dict:
@@ -48,5 +51,12 @@ def knowledge_agent(state: dict) -> dict:
         ),
         HumanMessage(content=query),
     ]
-    response = llm.invoke(prompt)
-    return {"generation": extract_text_content(response.content)}
+    logger.info("Knowledge agent handling query: '%.60s'", query)
+    try:
+        response = llm.invoke(prompt)
+        text = extract_text_content(response.content)
+        logger.info("Knowledge agent answered (len=%d) for query='%.60s'", len(text), query)
+        return {"generation": text}
+    except Exception as exc:
+        logger.error("Knowledge agent LLM call failed for query='%.60s': %s", query, exc, exc_info=True)
+        raise

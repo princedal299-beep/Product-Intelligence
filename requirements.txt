@@ -16,3 +16,4 @@ langgraph>=0.2.0
 sentence-transformers>=3.0.0
 faiss-cpu>=1.8.0
 pytest>=8.0.0
+langchain-google-genai>=1.0.0
