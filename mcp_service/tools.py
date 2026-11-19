@@ -70,7 +70,7 @@ def _connect(path):
 
 
 def _like(value):
-    return value.casefold().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return value.casefold().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_").replace("'", "''")
 
 
 def _product(row):

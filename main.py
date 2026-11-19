@@ -66,6 +66,7 @@ def save_login(response):
     st.session_state["messages"] = []
     st.query_params["token"] = token
 
+
 if "access_token" not in st.session_state:
     stored_token = st.query_params.get("token")
     if stored_token:
@@ -209,21 +210,58 @@ with st.sidebar:
                         else:
                             st.error(api_error(response))
 
-        with st.expander("Reindex ", expanded=False):
-            st.info("Reindex the (Phase 1).")
-            if st.button("  Start Reindexing"):
-                with st.spinner("Cleaning feed and reloading database..."):
+        with st.expander("Catalog Reindexing", expanded=False):
+            # Check if background reindexing just finished
+            if st.session_state.get("reindex_running"):
+                status_resp = api_request("GET", "admin/reindex/status", headers=headers)
+                if status_resp is not None and status_resp.ok:
+                    curr_status = status_resp.json().get("status")
+                    if curr_status == "completed":
+                        st.session_state["reindex_running"] = False
+                        st.toast("Catalog reindexing completed! ✅")
+                    elif curr_status == "failed":
+                        st.session_state["reindex_running"] = False
+                        st.toast("Catalog reindexing failed ❌")
+
+            col_act1, col_act2 = st.columns(2)
+            with col_act1:
+                if st.button("Start Reindexing"):
                     reindex_resp = api_request("POST", "admin/reindex", headers=headers)
-                    if reindex_resp is not None and reindex_resp.ok:
-                        info = reindex_resp.json()
-                        st.success(
-                            f"Feed reloaded! Rows read: {info.get('rows_read')}, "
-                            f"Loaded: {info.get('rows_loaded')}, "
-                            f"Rejected: {info.get('rows_rejected')}, "
-                            f"Duplicates removed: {info.get('duplicates_removed')}"
-                        )
+                    if reindex_resp is not None and reindex_resp.status_code in (200, 202):
+                        st.session_state["reindex_running"] = True
+                        st.success(reindex_resp.json().get("message", "Reindexing started!"))
+                    elif reindex_resp is not None and reindex_resp.status_code == 409:
+                        st.session_state["reindex_running"] = True
+                        st.warning("Reindexing is already in progress in the background.")
                     else:
-                        st.error(api_error(reindex_resp) if reindex_resp else "Feed reload failed.")
+                        st.error(api_error(reindex_resp) if reindex_resp else "Request failed.")
+
+            with col_act2:
+                if st.button("Check Status"):
+                    status_resp = api_request("GET", "admin/reindex/status", headers=headers)
+                    if status_resp is not None and status_resp.ok:
+                        s_info = status_resp.json()
+                        curr_status = s_info.get("status", "idle")
+                        if curr_status == "running":
+                            st.info(f"⏳ In Progress (Started: {s_info.get('started_at', '')[:19]})")
+                        elif curr_status == "completed":
+                            st.session_state["reindex_running"] = False
+                            st.toast("Catalog reindexing completed! ✅")
+                            summary = s_info.get("summary") or {}
+                            st.success(
+                                f"✅ Completed at {s_info.get('completed_at', '')[:19]}\n\n"
+                                f"Rows loaded: {summary.get('rows_loaded')}, "
+                                f"Rejected: {summary.get('rows_rejected')}, "
+                                f"Duplicates: {summary.get('duplicates_removed')}"
+                            )
+                        elif curr_status == "failed":
+                            st.session_state["reindex_running"] = False
+                            st.toast("Catalog reindexing failed ❌")
+                            st.error(f"❌ Failed: {s_info.get('error')}")
+                        else:
+                            st.write("Status: Idle (No active reindexing)")
+                    else:
+                        st.error("Could not fetch status.")
 
         with st.expander("View Audit Logs", expanded=False):
             if "audit_offset" not in st.session_state:
@@ -309,7 +347,7 @@ if "messages" not in st.session_state:
 
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
-        st.markdown(message["content"], unsafe_allow_html=True)
+        st.markdown(message["content"], unsafe_allow_html=False)
 
 prompt = st.chat_input("Type your question about products ...")
 if prompt:
@@ -327,7 +365,7 @@ if prompt:
                 headers=headers,
                 body={
                     "query": prompt,
-                    "thread_id": f"user_{user_id}_{session_id}",
+                    "thread_id": session_id,
                     "stream": True,
                 },
                 stream=True,
@@ -347,7 +385,7 @@ if prompt:
             if "application/json" in content_type:
                 data = response.json()
                 bot_reply = data.get("answer", "")
-                st.markdown(bot_reply, unsafe_allow_html=True)
+                st.markdown(bot_reply, unsafe_allow_html=False)
             else:
                 def stream_chunks():
                     for chunk in response.iter_content(chunk_size=None, decode_unicode=True):

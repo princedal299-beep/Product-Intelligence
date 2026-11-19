@@ -45,11 +45,13 @@ async def chat_endpoint(
     trace_id = f"trace-{uuid.uuid4().hex[:12]}"
 
 
-    thread_id = chat_req.thread_id
-    if not thread_id or thread_id == "default":
-        thread_id = f"user_{user_id}"
+    raw_thread = (chat_req.thread_id or "default").strip()
+    clean_session_id = re.sub(r"^user_[^_]+_", "", raw_thread)
+    if not clean_session_id or clean_session_id == "default":
+        clean_session_id = "default"
+    thread_id = f"user_{user_id}_{clean_session_id}"
 
-    logger.info("Chat query from user='%s' (role=%s): '%s'", user_id, role, query[:60])
+    logger.info("Chat query from user='%s' (role=%s, thread='%s'): '%.60s'", user_id, role, thread_id, query)
 
     try:
         mcp_token = create_mcp_token(user_id, role)

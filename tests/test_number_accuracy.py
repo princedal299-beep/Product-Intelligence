@@ -37,6 +37,21 @@ class TestNumberAccuracy(unittest.TestCase):
         self.assertFalse(passed, "Incorrect stock status must be caught and rejected")
         self.assertIn("claimed 'out of stock'", msg)
 
+    def test_price_swapping_between_products_fails(self):
+        docs_with_two_products = [
+            Document(
+                page_content=json.dumps([
+                    {"product_id": "SR001", "title": "Oval Sapphire Ring", "price_usd": 750.0},
+                    {"product_id": "DR002", "title": "Diamond Eternity Band", "price_usd": 1500.0},
+                ])
+            )
+        ]
+        # Both $750 and $1500 exist in catalog, but here Sapphire Ring is falsely attributed $1500
+        swapped_answer = "The Oval Sapphire Ring is priced at $1,500.00."
+        passed, msg = verify_numeric_and_stock_facts(docs_with_two_products, swapped_answer)
+        self.assertFalse(passed, "Cross-product price swapping must be caught")
+        self.assertIn("Price mismatch for 'oval sapphire ring'", msg)
+
 
 if __name__ == "__main__":
     unittest.main()

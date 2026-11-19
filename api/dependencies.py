@@ -10,47 +10,34 @@ from api.security.tokens import decode_token
 bearer_auth = HTTPBearer()
 
 
-def verify_token(
-    credentials: HTTPAuthorizationCredentials = Depends(bearer_auth),
-) -> dict[str, Any]:
-    """Dependency: Extract and validate Bearer JWT token from request header."""
+def verify_token(credentials: HTTPAuthorizationCredentials = Depends(bearer_auth)) -> dict:
     try:
-        return decode_token(credentials.credentials)
+        payload = decode_token(credentials.credentials)
     except (JWTError, ValueError):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or expired token",
-        )
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
 
+    if payload.get("token_type") == "mcp":
+        raise HTTPException(status_code=401, detail="MCP scoped tokens cannot be used as user session tokens.")
 
-def get_current_user(
-    token_payload: dict[str, Any] = Depends(verify_token),
-) -> dict[str, Any]:
-    """Dependency: Validate that request has a valid token and recognized user role."""
-    if token_payload.get("role") not in {SHOPPER, MERCHANDISER, ADMIN}:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="A valid user role is required",
-        )
-    return token_payload
+    return payload
 
+def get_current_user(token_payload: dict = Depends(verify_token)) -> dict:
+    user_id = token_payload.get("user_id")
+    if str(user_id) == "admin":
+        return token_payload
 
-def get_merchandiser(
-    token_payload: dict[str, Any] = Depends(verify_token),
-) -> dict[str, Any]:
-    """Dependency: Restrict access to Merchandisers and Admins."""
-    if token_payload.get("role") not in {MERCHANDISER, ADMIN}:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Merchandiser role required",
-        )
+    from api.store.user_repository import get_user_by_id
+    db_user = get_user_by_id(user_id)
+    if not db_user:
+        raise HTTPException(status_code=401, detail="User account no longer exists.")
+
+    token_payload["role"] = db_user["role"]
     return token_payload
 
 
 def get_admin(
     token_payload: dict[str, Any] = Depends(verify_token),
 ) -> dict[str, Any]:
-    """Dependency: Restrict access strictly to Admins."""
     if token_payload.get("role") != ADMIN:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

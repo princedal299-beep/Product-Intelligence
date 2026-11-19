@@ -241,7 +241,10 @@ class ProductRepository:
         }
 
     def replace_products(self, products):
-        count = 0
+        product_list = list(products)
+        if not product_list:
+            raise ValueError("No valid products were found; catalog was not replaced.")
+
         with closing(self._connect()) as conn:
             with conn:
                 conn.execute("DELETE FROM products")
@@ -251,25 +254,23 @@ class ProductRepository:
                         stock_status, description, image_path, attributes_json, search_text
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """
-                for faiss_id, product in enumerate(products):
-                    search_text = product_search_text(product)
-                    conn.execute(
-                        insert_sql,
-                        (
-                            product.product_id,
-                            faiss_id,
-                            product.parent_sku,
-                            product.title,
-                            product.price_usd,
-                            product.stock_status,
-                            product.description,
-                            product.image_path,
-                            json.dumps(product.attributes, ensure_ascii=False),
-                            search_text,
-                        ),
+                records = [
+                    (
+                        p.product_id,
+                        faiss_id,
+                        p.parent_sku,
+                        p.title,
+                        p.price_usd,
+                        p.stock_status,
+                        p.description,
+                        p.image_path,
+                        json.dumps(p.attributes, ensure_ascii=False),
+                        product_search_text(p),
                     )
-                    count += 1
-        return count
+                    for faiss_id, p in enumerate(product_list)
+                ]
+                conn.executemany(insert_sql, records)
+        return len(product_list)
 
 
 def valid_products_from_csv(csv_path, rejects_path, summary):

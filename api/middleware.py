@@ -69,19 +69,35 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         self.request_timestamps = {}
 
     async def dispatch(self, request: Request, call_next):
+        client_ip = request.client.host if request.client else "unknown"
+        forwarded = request.headers.get("x-forwarded-for")
+        if forwarded:
+            client_ip = forwarded.split(",")[0].strip()
+
+        client_key = f"ip:{client_ip}"
         auth_header = request.headers.get("authorization", "")
         if auth_header.startswith("Bearer "):
-            client_key = auth_header
-        elif request.client:
-            client_key = request.client.host
-        else:
-            client_key = "unknown"
+            token = auth_header[7:].strip()
+            try:
+                from api.security.tokens import decode_token
+                payload = decode_token(token)
+                client_key = f"user:{payload['user_id']}"
+            except Exception:
+                pass
 
         now = time.time()
-        timestamps = self.request_timestamps.get(client_key, [])
 
-        recent_timestamps = [t for t in timestamps if now - t < RATE_LIMIT_WINDOW_SECONDS]
-        self.request_timestamps[client_key] = recent_timestamps
+        if len(self.request_timestamps) > 500:
+            self.request_timestamps = {
+                k: [t for t in v if now - t < RATE_LIMIT_WINDOW_SECONDS]
+                for k, v in self.request_timestamps.items()
+                if any(now - t < RATE_LIMIT_WINDOW_SECONDS for t in v)
+            }
+
+        recent_timestamps = [
+            t for t in self.request_timestamps.get(client_key, [])
+            if now - t < RATE_LIMIT_WINDOW_SECONDS
+        ]
 
         if len(recent_timestamps) >= RATE_LIMIT_MAX_REQUESTS:
             req_id = getattr(request.state, "request_id", "")
@@ -97,5 +113,6 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                 headers={"Retry-After": str(RATE_LIMIT_WINDOW_SECONDS)},
             )
 
-        self.request_timestamps[client_key].append(now)
+        recent_timestamps.append(now)
+        self.request_timestamps[client_key] = recent_timestamps
         return await call_next(request)

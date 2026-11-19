@@ -4,7 +4,8 @@ import secrets
 from typing import Literal, Optional
 
 from dotenv import load_dotenv
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from api.dependencies import get_admin
@@ -99,24 +100,110 @@ def audit_endpoint(limit: int = 50, offset: int = 0, _=Depends(get_admin)):
     return get_audit_logs(limit=limit, offset=offset)
 
 
-@router.post("/reindex")
-def reindex_catalog(_=Depends(get_admin)):
-    """Admin endpoint to reload the feed data (runs Phase 1 data cleaning)."""
-    from ingestion.ingest import DEFAULT_OUTPUT_DIR, find_feed, run_phase1_ingest
+reindex_state = {
+    "status": "idle",
+    "started_at": None,
+    "completed_at": None,
+    "error": None,
+    "summary": None,
+}
+
+
+def _run_background_reindex(csv_path, rebuild_faiss: bool = True):
+    global reindex_state
+    import shutil
+    from datetime import datetime, timezone
+    from ingestion.ingest import DEFAULT_OUTPUT_DIR
+
+    staging_dir = DEFAULT_OUTPUT_DIR.parent / "catalog_staging"
+    staging_dir.mkdir(parents=True, exist_ok=True)
+
+    reindex_state["status"] = "running"
+    reindex_state["started_at"] = datetime.now(timezone.utc).isoformat()
+    reindex_state["error"] = None
+    logger.info("Background reindexing started with staging directory: %s", staging_dir)
 
     try:
-        csv_path = find_feed()
-        summary = run_phase1_ingest(csv_path, DEFAULT_OUTPUT_DIR)
-        return {
-            "status": "success",
-            "phase": "Phase 1: Data Cleaning & Feed Reload",
+        if rebuild_faiss:
+            from ingestion.build_faiss_index import build_catalog
+            summary = build_catalog(csv_path=csv_path, output_dir=staging_dir)
+        else:
+            from ingestion.ingest import run_phase1_ingest
+            summary = run_phase1_ingest(csv_path, staging_dir)
+
+        for fname in ("catalog.sqlite3", "products.faiss", "manifest.json", "rejects.csv"):
+            src = staging_dir / fname
+            dst = DEFAULT_OUTPUT_DIR / fname
+            if src.is_file():
+                shutil.copy2(src, dst)
+
+        try:
+            from mcp_service.tools import _catalog_index
+            _catalog_index.cache_clear()
+        except Exception:
+            pass
+
+        reindex_state["status"] = "completed"
+        reindex_state["completed_at"] = datetime.now(timezone.utc).isoformat()
+        reindex_state["summary"] = {
             "rows_read": summary.rows_read,
             "rows_loaded": summary.rows_loaded,
             "rows_rejected": summary.rows_rejected,
             "duplicates_removed": summary.duplicates_removed,
         }
+        logger.info("Background reindexing completed successfully: %s", reindex_state["summary"])
+    except Exception as exc:
+        logger.error("Background reindexing failed: %s", exc, exc_info=True)
+        reindex_state["status"] = "failed"
+        reindex_state["completed_at"] = datetime.now(timezone.utc).isoformat()
+        reindex_state["error"] = str(exc)
+    finally:
+        try:
+            shutil.rmtree(staging_dir, ignore_errors=True)
+        except Exception:
+            pass
+
+
+@router.post("/reindex")
+def reindex_catalog(
+    background_tasks: BackgroundTasks,
+    rebuild_faiss: bool = True,
+    _=Depends(get_admin),
+):
+    global reindex_state
+    if reindex_state.get("status") == "running":
+        return JSONResponse(
+            status_code=status.HTTP_409_CONFLICT,
+            content={
+                "status": "already_running",
+                "message": "Catalog reindexing is currently in progress.",
+                "started_at": reindex_state.get("started_at"),
+            },
+        )
+
+    from ingestion.ingest import find_feed
+
+    try:
+        csv_path = find_feed()
     except Exception as exc:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Feed reload failed: {exc}",
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Feed detection failed: {exc}",
         ) from exc
+
+    background_tasks.add_task(_run_background_reindex, csv_path, rebuild_faiss)
+
+    return JSONResponse(
+        status_code=status.HTTP_202_ACCEPTED,
+        content={
+            "status": "started",
+            "message": "Reindexing started .",
+            "rebuild_faiss": rebuild_faiss,
+        },
+    )
+
+
+@router.get("/reindex/status")
+def reindex_status_endpoint(_=Depends(get_admin)):
+    """Check background reindexing status and metrics."""
+    return reindex_state

@@ -6,12 +6,11 @@ from api.keys.key_loader import PRIVATE_KEY, PUBLIC_KEY
 from api.roles import scopes_for_role
 
 ALGORITHM = "RS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "1440"))
+ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "60"))
 MCP_TOKEN_EXPIRE_SECONDS = int(os.getenv("MCP_TOKEN_EXPIRE_SECONDS", "60"))
 
 
 def create_token(data: dict, expires_delta: timedelta | None = None) -> str:
-    """Create a signed RS256 JWT token."""
     to_encode = data.copy()
     if expires_delta is not None:
         expire = datetime.now(timezone.utc) + expires_delta
@@ -28,6 +27,7 @@ def create_user_token(user_id: int | str, role: str) -> str:
         "user_id": user_id,
         "sub": str(user_id),
         "role": role,
+        "token_type":"session",
     })
 
 
@@ -38,6 +38,7 @@ def create_mcp_token(user_id: int | str, role: str) -> str:
             "user_id": user_id,
             "sub": str(user_id),
             "role": role,
+            "token_type":"mcp",
             "scope": " ".join(scopes_for_role(role)),
         },
         expires_delta=timedelta(seconds=MCP_TOKEN_EXPIRE_SECONDS),

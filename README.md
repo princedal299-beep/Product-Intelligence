@@ -9,7 +9,7 @@ An enterprise-grade, conversational product discovery and intelligence platform 
 > ```
 > *(Or in Command Prompt: `run_app.bat` | macOS/Linux: `./run_app.sh`)*
 >
-> This automatically starts the **FastAPI Gateway (Port 8000)**, the **MCP Tool Server (Port 8001)**, and the **Streamlit Web UI (Port 8501)** in synchronized, dedicated terminal windows. See [Section 2: Running the Application](#2-running-the-application) for prerequisites and details.
+> This checks the project Python environment and application imports before starting the **FastAPI Gateway (Port 8000)**, **MCP Tool Server (Port 8001)**, and **Streamlit Web UI (Port 8501)** in separate terminal windows. See [Section 2: Running the Application](#2-running-the-application) for prerequisites and details.
 
 ---
 
@@ -166,7 +166,9 @@ python api/keys/generate_keys.py
 
 ### Option A: One-Command Startup (Recommended for Windows: `.\run_app.bat`)
 
-The easiest and fastest way to launch the entire system is using the automated batch runner `.\run_app.bat`. It starts all three microservices in separate, synchronized terminal windows with staggered startup intervals.
+The easiest way to launch the entire system is using `.\run_app.bat`. It selects the project `venv` or `.venv` Python (or falls back to `python`), checks required application imports, then starts the services in separate terminal windows.
+
+If the preflight reports that Windows Application Control blocked a DLL/module, the issue is an operating-system security policy and cannot be fixed by a batch-file command. Ask your IT administrator to review and authorize the trusted dependency; do not disable or bypass the policy.
 
 #### 1. Execute the Batch Script:
 * **In Windows PowerShell:**
@@ -191,12 +193,12 @@ chmod +x run_app.sh
 #### 3. What Happens Under the Hood:
 When you run `.\run_app.bat`, the script executes the following sequence:
 1. **Directory Anchoring:** Pins the working directory directly to the project root (`cd /d "%~dp0"`).
-2. **Virtual Environment Detection:** Automatically activates `venv` or `.venv` if present.
-3. **[1/3] FastAPI Gateway (Port 8000):** Spawns Terminal 1 running `uvicorn api.app:app --host 127.0.0.1 --port 8000 --reload` (handles authentication, rate limiting, and LangGraph workflow).
-4. **Stagger Interval (2s):** Waits 2 seconds for FastAPI to bind its socket.
-5. **[2/3] MCP Tool Server (Port 8001):** Spawns Terminal 2 running `python mcp_service/tools.py` (serves catalog discovery and analytics tools with RS256 token validation).
+2. **Python Selection and Preflight:** Uses the interpreter in `venv` or `.venv` if present and checks the application imports before opening service windows.
+3. **[1/3] FastAPI Gateway (Port 8000):** Spawns Terminal 1 running the selected Python interpreter with `-m uvicorn api.app:app --host 127.0.0.1 --port 8000 --reload` (handles authentication, rate limiting, and LangGraph workflow).
+4. **Stagger Interval (2s):** Waits 2 seconds before launching the MCP server.
+5. **[2/3] MCP Tool Server (Port 8001):** Spawns Terminal 2 running the selected Python interpreter with `-m mcp_service.tools` (serves catalog discovery and analytics tools with RS256 token validation).
 6. **Stagger Interval (2s):** Waits 2 seconds for MCP tools to register.
-7. **[3/3] Streamlit Web UI (Port 8501):** Spawns Terminal 3 running `streamlit run main.py` and opens the chatbot interface in your default browser.
+7. **[3/3] Streamlit Web UI (Port 8501):** Spawns Terminal 3 running the selected Python interpreter with `-m streamlit run main.py` and opens the chatbot interface in your default browser.
 
 #### 4. Active Service Endpoints:
 | Service | Local URL | Swagger / Health URL | Notes |

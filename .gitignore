@@ -24,3 +24,5 @@ dist/
 
 
 *.zip
+locustfile.py
+locust*.py
