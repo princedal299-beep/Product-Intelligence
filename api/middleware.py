@@ -87,7 +87,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
         now = time.time()
 
-        if len(self.request_timestamps) > 500:
+        if len(self.request_timestamps) > 100:
             self.request_timestamps = {
                 k: [t for t in v if now - t < RATE_LIMIT_WINDOW_SECONDS]
                 for k, v in self.request_timestamps.items()

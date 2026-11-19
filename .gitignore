@@ -10,6 +10,7 @@ logs/
 *.log
 .pytest_cache/
 .deepeval/
+data/
 
 # Virtual Environments
 venv/

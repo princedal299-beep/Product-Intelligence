@@ -7,7 +7,7 @@ An enterprise-grade, conversational product discovery and intelligence platform 
 > ```powershell
 > .\run_app.bat
 > ```
-> *(Or in Command Prompt: `run_app.bat` | macOS/Linux: `./run_app.sh`)*
+> *(Or in Command Prompt: `run_app.bat`)
 >
 > This checks the project Python environment and application imports before starting the **FastAPI Gateway (Port 8000)**, **MCP Tool Server (Port 8001)**, and **Streamlit Web UI (Port 8501)** in separate terminal windows. See [Section 2: Running the Application](#2-running-the-application) for prerequisites and details.
 
