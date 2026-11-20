@@ -52,6 +52,39 @@ class TestNumberAccuracy(unittest.TestCase):
         self.assertFalse(passed, "Cross-product price swapping must be caught")
         self.assertIn("Price mismatch for 'oval sapphire ring'", msg)
 
+    def test_markdown_multiline_price_swapping_fails(self):
+        docs = [
+            Document(
+                page_content=json.dumps([
+                    {"product_id": "SR001", "title": "Oval Sapphire Ring", "price_usd": 750.0, "stock_status": "in stock"},
+                    {"product_id": "DR002", "title": "Diamond Eternity Band", "price_usd": 1500.0, "stock_status": "out of stock"},
+                ])
+            )
+        ]
+        swapped_md = "### 1. Oval Sapphire Ring\n- **Price:** $1,500.00\n- **Availability:** In Stock\n\n### 2. Diamond Eternity Band\n- **Price:** $750.00\n- **Availability:** Out of Stock"
+        passed, msg = verify_numeric_and_stock_facts(docs, swapped_md)
+        self.assertFalse(passed, "Multiline markdown price swapping must be caught")
+        self.assertIn("Price mismatch for 'oval sapphire ring'", msg)
+
+    def test_markdown_multiline_stock_swapping_fails(self):
+        docs = [
+            Document(
+                page_content=json.dumps([
+                    {"product_id": "SR001", "title": "Oval Sapphire Ring", "price_usd": 750.0, "stock_status": "in stock"},
+                    {"product_id": "DR002", "title": "Diamond Eternity Band", "price_usd": 1500.0, "stock_status": "out of stock"},
+                ])
+            )
+        ]
+        stock_swapped_md = "### 1. Oval Sapphire Ring\n- **Price:** $750.00\n- **Availability:** In Stock\n\n### 2. Diamond Eternity Band\n- **Price:** $1,500.00\n- **Availability:** In Stock"
+        passed, msg = verify_numeric_and_stock_facts(docs, stock_swapped_md)
+        self.assertFalse(passed, "Claiming out-of-stock product as in-stock must be caught")
+        self.assertIn("Stock mismatch for 'diamond eternity band'", msg)
+
+    def test_query_fake_price_fails(self):
+        fake_price_answer = "Yes, we have the Oval Sapphire Ring for $10.00."
+        passed, msg = verify_numeric_and_stock_facts(self.sample_docs, fake_price_answer, query="Do you have a ring for $10?")
+        self.assertFalse(passed, "Fake price mentioned in query must not be approved")
+
 
 if __name__ == "__main__":
     unittest.main()

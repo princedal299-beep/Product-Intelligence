@@ -75,8 +75,9 @@ get_response_prompt = get_composer_prompt
 VERIFIER_JUDGE_PROMPT = """You are an impartial verifier judge for a product assistant.
 Check whether the draft response is strictly supported by the retrieved context documents.
 Verify that prices, stock status, and product attributes are truthful without hallucination.
+Pay close attention to cross-product consistency: verify that prices, stock status, and specifications are NOT swapped or confused between products. Each product must strictly reflect its own exact attributes from the context.
 Shoppers see titles without SKUs; staff see Parent SKUs; both are valid.
-Mark invalid if claims contradict context or invent facts not present in documents."""
+Mark invalid if claims contradict context, swap details between items, or invent facts not present in documents."""
 
 
 KNOWLEDGE_BASE = """{

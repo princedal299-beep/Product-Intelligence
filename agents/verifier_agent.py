@@ -40,6 +40,7 @@ def verify_numeric_and_stock_facts(
     known_prices = set()
     known_stock = set()
     product_price_map = {}
+    product_stock_map = {}
     for doc in documents:
         content = doc.page_content if hasattr(doc, "page_content") else str(doc)
         try:
@@ -68,15 +69,20 @@ def verify_numeric_and_stock_facts(
                                 known_prices.add(float(v))
                                 if k in ("price_usd", "price") or price_val is None:
                                     price_val = float(v)
+                        title = (item.get("title") or item.get("name") or "").strip().lower()
+                        sku = (item.get("parent_sku") or item.get("product_id") or "").strip().lower()
+                        stock = str(item.get("stock_status") or "").strip().lower()
                         if price_val is not None:
-                            title = (item.get("title") or item.get("name") or "").strip().lower()
-                            sku = (item.get("parent_sku") or item.get("product_id") or "").strip().lower()
                             if title and len(title) >= 5:
                                 product_price_map[title] = price_val
                             if sku and len(sku) >= 4:
                                 product_price_map[sku] = price_val
-                        if item.get("stock_status"):
-                            known_stock.add(str(item["stock_status"]).strip().lower())
+                        if stock:
+                            known_stock.add(stock)
+                            if title and len(title) >= 5:
+                                product_stock_map[title] = stock
+                            if sku and len(sku) >= 4:
+                                product_stock_map[sku] = stock
         except Exception:
             pass
 
@@ -89,31 +95,37 @@ def verify_numeric_and_stock_facts(
                     continue
                 if max_p is not None and abs(price - float(max_p)) < 0.05:
                     continue
-            query_prices = _extract_prices(query)
-            if any(abs(price - qp) < 0.05 for qp in query_prices):
-                continue
             return False, f"cited price ${price:.2f} does not match any product in data"
 
-    # Cross-product price mismatch check (prevent price swapping)
-    for line in generation.splitlines():
-        line_lower = line.lower()
-        line_prices = _extract_prices(line)
-        if not line_prices:
-            continue
-        for prod_identifier, correct_price in product_price_map.items():
-            if prod_identifier in line_lower:
-                if not any(abs(lp - correct_price) < 0.05 for lp in line_prices):
-                    return False, f"Price mismatch for '{prod_identifier}': expected ${correct_price:.2f}"
-
+    # Cross-product price and stock mismatch check (prevent swapping)
     gen_lower = generation.lower()
-    claimed_in_stock = ("in stock" in gen_lower) or ("available" in gen_lower and "not available" not in gen_lower)
-    claimed_out_of_stock = "out of stock" in gen_lower
+    prod_positions = []
+    for prod in set(product_price_map.keys()) | set(product_stock_map.keys()):
+        pos = gen_lower.find(prod)
+        if pos != -1:
+            prod_positions.append((pos, prod))
+    prod_positions.sort()
 
-    if claimed_in_stock and known_stock and "in stock" not in known_stock:
-        return False, "claimed 'in stock', but retrieved data does not confirm it."
+    for i, (pos, prod) in enumerate(prod_positions):
+        next_pos = prod_positions[i + 1][0] if i + 1 < len(prod_positions) else len(gen_lower)
+        segment = gen_lower[pos:next_pos]
 
-    if claimed_out_of_stock and known_stock and "out of stock" not in known_stock:
-        return False, "claimed 'out of stock', but retrieved data does not confirm it."
+        # Check price in product's section
+        if prod in product_price_map:
+            correct_price = product_price_map[prod]
+            segment_prices = _extract_prices(segment)
+            if segment_prices and not any(abs(p - correct_price) < 0.05 for p in segment_prices):
+                return False, f"Price mismatch for '{prod}': expected ${correct_price:.2f}"
+
+        # Check stock in product's section
+        if prod in product_stock_map:
+            correct_stock = product_stock_map[prod]
+            claimed_in_stock = ("in stock" in segment) or ("available" in segment and "not available" not in segment)
+            claimed_out_of_stock = "out of stock" in segment
+            if correct_stock == "out of stock" and claimed_in_stock and not claimed_out_of_stock:
+                return False, f"Stock mismatch for '{prod}': claimed 'in stock' but data says out of stock"
+            if correct_stock == "in stock" and claimed_out_of_stock:
+                return False, f"Stock mismatch for '{prod}': claimed 'out of stock' but data says in stock"
 
     return True, "Code check passed."
 
