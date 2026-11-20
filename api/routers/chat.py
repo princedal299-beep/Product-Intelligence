@@ -109,7 +109,12 @@ async def chat_endpoint(
         and "not available" not in answer.lower()
     ):
         if plan == "jewellery_help":
-            sources = ["jewellery_care", "ring_sizes"]
+            doc_sources = [
+                doc.metadata.get("source") or doc.metadata.get("category")
+                for doc in workflow_result.get("documents", [])
+                if hasattr(doc, "metadata") and (doc.metadata.get("source") or doc.metadata.get("category"))
+            ]
+            sources = list(dict.fromkeys(doc_sources)) if doc_sources else ["help_docs:jewellery_knowledge"]
         elif plan in {"product_search", "product_details", "catalog_analytics"}:
             sources = ["catalog.sqlite3"]
 

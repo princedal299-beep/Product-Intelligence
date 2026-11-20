@@ -143,7 +143,7 @@ def build_graph():
     )
     workflow.add_edge("catalog_agent", "composer")
     workflow.add_edge("composer", "verifier")
-    workflow.add_edge("knowledge_agent", "finish_turn")
+    workflow.add_edge("knowledge_agent", "verifier")
     workflow.add_conditional_edges(
         "verifier",
         after_verification,

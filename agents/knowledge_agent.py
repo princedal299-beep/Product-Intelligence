@@ -2,6 +2,7 @@ import json
 import logging
 import os
 
+from langchain_core.documents import Document
 from langchain_core.messages import HumanMessage, SystemMessage
 from core.llm_factory import extract_text_content, get_llm
 from core.prompts import KNOWLEDGE_BASE
@@ -14,6 +15,28 @@ def load_knowledge_ques() -> dict:
     if isinstance(KNOWLEDGE_BASE, str):
         return json.loads(KNOWLEDGE_BASE)
     return KNOWLEDGE_BASE
+
+
+def get_help_documents() -> list[Document]:
+    """Parse knowledge base into structured documents with source metadata."""
+    kb = load_knowledge_ques()
+    docs = []
+    knowledge_dict = kb.get("jewellery_knowledge", {}) if isinstance(kb, dict) else {}
+    for category, qas in knowledge_dict.items():
+        category_title = category.replace("_", " ").title()
+        qa_texts = []
+        for item in qas:
+            q = item.get("question", "")
+            a = item.get("answer", "")
+            qa_texts.append(f"Q: {q}\nA: {a}")
+        content = f"Category: {category_title}\n" + "\n\n".join(qa_texts)
+        docs.append(
+            Document(
+                page_content=content,
+                metadata={"source": f"help_docs:{category}", "category": category},
+            )
+        )
+    return docs
 
 
 def knowledge_agent(state: dict) -> dict:
@@ -56,7 +79,8 @@ def knowledge_agent(state: dict) -> dict:
         response = llm.invoke(prompt)
         text = extract_text_content(response.content)
         logger.info("Knowledge agent answered (len=%d) for query='%.60s'", len(text), query)
-        return {"generation": text}
+        help_docs = get_help_documents()
+        return {"generation": text, "documents": help_docs}
     except Exception as exc:
         logger.error("Knowledge agent LLM call failed for query='%.60s': %s", query, exc, exc_info=True)
         raise
