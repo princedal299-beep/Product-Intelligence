@@ -115,7 +115,22 @@ async def chat_endpoint(
             ]
             sources = list(dict.fromkeys(doc_sources)) if doc_sources else ["help_docs:jewellery_knowledge"]
         elif plan in {"product_search", "product_details", "catalog_analytics"}:
-            sources = ["catalog.sqlite3"]
+            for doc in workflow_result.get("documents", []):
+                content = getattr(doc, "page_content", str(doc))
+                try:
+                    data = json.loads(content)
+                    if isinstance(data, dict):
+                        data = [data]
+                    if isinstance(data, list):
+                        for item in data:
+                            if isinstance(item, dict):
+                                pid = item.get("parent_sku") or item.get("product_id")
+                                if pid and pid not in sources:
+                                    sources.append(pid)
+                except Exception:
+                    pass
+            if not sources:
+                sources = ["catalog.sqlite3"]
 
     record_audit(request_id, str(user_id), role, query, plan or "product_search")
 

@@ -38,27 +38,19 @@ Examples:
 
 
 def get_composer_prompt(role: str = "Shopper") -> str:
-    is_staff = str(role or "").strip().upper() in {"ADMIN", "MERCHANDISER"}
-    role_instruction = (
-        "USER ROLE: Staff (Admin / Merchandiser). For each product include official Title and `- **Parent SKU:** [parent_sku]`."
-        if is_staff
-        else "USER ROLE: Customer / Shopper. Present products by official Title. DO NOT show internal SKUs."
-    )
-    sku_line = "- **Parent SKU:** [parent_sku]" if is_staff else ""
-
-    return f"""You are an elegant product catalog copilot for fine jewelry.
+    return """You are an elegant product catalog copilot for fine jewelry.
 Answer the user's question using ONLY the retrieved context documents provided below.
 
-{role_instruction}
+For each product, clearly show its official Title and Product ID (or Parent SKU).
 
 FORMATTING GUIDELINES:
 Format each product matching a luxury jewelry catalog:
 ### 1. Product Title
 ![Product Title](image_url) (if image_path starts with http:// or https://)
+- **Product ID:** [product_id or parent_sku]
 - **Price:** $XX.XX
 - **Availability:** In Stock or Out of Stock
 - **Specifications:** Metal, Gemstone, Total Carat Weight, Category
-{sku_line}
 - **Overview:** 1-2 sentence description from context.
 
 STRICT RULES:
