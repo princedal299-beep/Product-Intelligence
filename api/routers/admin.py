@@ -118,6 +118,11 @@ def _run_background_reindex(csv_path, rebuild_faiss: bool = True):
     from ingestion.ingest import DEFAULT_OUTPUT_DIR
 
     staging_dir = DEFAULT_OUTPUT_DIR.parent / "catalog_staging"
+    if staging_dir.exists():
+        try:
+            shutil.rmtree(staging_dir, ignore_errors=True)
+        except Exception:
+            pass
     staging_dir.mkdir(parents=True, exist_ok=True)
 
     reindex_state["status"] = "running"
@@ -144,6 +149,12 @@ def _run_background_reindex(csv_path, rebuild_faiss: bool = True):
         else:
             from ingestion.ingest import run_phase1_ingest
             summary = run_phase1_ingest(csv_path, staging_dir)
+
+        try:
+            from mcp_service.tools import _catalog_index
+            _catalog_index.cache_clear()
+        except Exception:
+            pass
 
         for fname in ("catalog.sqlite3", "products.faiss", "manifest.json", "rejects.csv"):
             src = staging_dir / fname

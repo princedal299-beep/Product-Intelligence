@@ -69,8 +69,20 @@ def save_login(response):
 
 @st.fragment(run_every=2)
 def render_catalog_reindexing(headers):
-    if st.button("Start Reindexing", disabled=st.session_state.get("reindex_running", False)):
-        st.session_state.pop("reindex_completed_info", None)
+    status_resp = api_request("GET", "admin/reindex/status", headers=headers)
+    s_info = {}
+    curr_status = "idle"
+    if status_resp is not None and status_resp.ok:
+        s_info = status_resp.json()
+        curr_status = s_info.get("status", "idle")
+    elif status_resp is not None and status_resp.status_code == 401:
+        st.error("Session expired. Please log out and log in again.")
+        return
+
+    is_running = (curr_status == "running")
+    st.session_state["reindex_running"] = is_running
+
+    if st.button("Start Reindexing", disabled=is_running):
         reindex_resp = api_request("POST", "admin/reindex", headers=headers)
         if reindex_resp is not None and reindex_resp.status_code in (200, 202):
             st.session_state["reindex_running"] = True
@@ -79,57 +91,26 @@ def render_catalog_reindexing(headers):
             st.session_state["reindex_running"] = True
             st.warning("Reindexing is already in progress.")
             st.rerun()
+        elif reindex_resp is not None and reindex_resp.status_code == 401:
+            st.error("Session expired. Please log out and log in again.")
         else:
             st.error(api_error(reindex_resp) if reindex_resp else "Request failed.")
 
-    if st.session_state.get("reindex_running"):
-        status_resp = api_request("GET", "admin/reindex/status", headers=headers)
-        if status_resp is not None and status_resp.ok:
-            s_info = status_resp.json()
-            curr_status = s_info.get("status", "idle")
+    if curr_status == "running":
+        processed = int(s_info.get("processed", 0))
+        total = int(s_info.get("total", 0))
+        remaining = max(0, total - processed)
+        fraction = min(1.0, max(0.0, processed / total)) if total > 0 else 0.0
+        pct = int(fraction * 100)
+        bar_text = (
+            f"{pct}% completed - {processed:,} / {total:,} done ({remaining:,} remaining)"
+            if total > 0
+            else "Indexing catalog products..."
+        )
+        st.progress(fraction, text=bar_text)
+        st.caption(f"⏳ In Progress — Started: {s_info.get('started_at', '')[:19]}")
 
-            if curr_status == "running":
-                processed = int(s_info.get("processed", 0))
-                total = int(s_info.get("total", 0))
-                remaining = max(0, total - processed)
-                fraction = min(1.0, max(0.0, processed / total)) if total > 0 else 0.0
-                pct = int(fraction * 100)
-                bar_text = (
-                    f"{pct}% completed - {processed:,} / {total:,} done ({remaining:,} remaining)"
-                    if total > 0
-                    else "Indexing catalog products..."
-                )
-                st.progress(fraction, text=bar_text)
-                st.caption(f"⏳ In Progress — Started: {s_info.get('started_at', '')[:19]}")
-
-            elif curr_status == "completed":
-                st.session_state["reindex_running"] = False
-                st.session_state["reindex_completed_info"] = s_info
-                summary = s_info.get("summary") or {}
-                total = s_info.get("total") or summary.get("rows_loaded", 0)
-                st.progress(1.0, text=f"100% completed - {total:,} / {total:,} done (0 remaining)")
-                st.success(
-                    f"✅ Reindexing completed at {s_info.get('completed_at', '')[:19]}\n\n"
-                    f"• Loaded: {summary.get('rows_loaded', 0):,}\n"
-                    f"• Rejected: {summary.get('rows_rejected', 0):,}\n"
-                    f"• Duplicates: {summary.get('duplicates_removed', 0):,}"
-                )
-
-            elif curr_status == "failed":
-                st.session_state["reindex_running"] = False
-                st.error(f"❌ Reindexing failed: {s_info.get('error', 'Unknown error')}")
-
-            else:
-                st.session_state["reindex_running"] = False
-                st.write("Status: Idle (No active reindexing)")
-        elif status_resp is not None and status_resp.status_code == 429:
-            st.caption("⏳ Updating progress...")
-        else:
-            st.session_state["reindex_running"] = False
-            err_msg = api_error(status_resp) if status_resp else "Could not reach API to track progress."
-            st.error(f"Could not fetch reindexing progress: {err_msg}")
-    elif st.session_state.get("reindex_completed_info"):
-        s_info = st.session_state["reindex_completed_info"]
+    elif curr_status == "completed":
         summary = s_info.get("summary") or {}
         total = s_info.get("total") or summary.get("rows_loaded", 0)
         st.progress(1.0, text=f"100% completed - {total:,} / {total:,} done (0 remaining)")
@@ -139,6 +120,10 @@ def render_catalog_reindexing(headers):
             f"• Rejected: {summary.get('rows_rejected', 0):,}\n"
             f"• Duplicates: {summary.get('duplicates_removed', 0):,}"
         )
+
+    elif curr_status == "failed":
+        st.error(f"❌ Reindexing failed: {s_info.get('error', 'Unknown error')}")
+
     else:
         st.write("Status: Idle (No active reindexing)")
 
@@ -161,6 +146,7 @@ if "access_token" not in st.session_state:
                 st.session_state["messages"] = []
         else:
             st.query_params.clear()
+            st.warning("Your session has expired. Please log in again.")
 
 if "access_token" not in st.session_state:
     login_tab, register_tab = st.tabs(["Log in", "Create account"])
