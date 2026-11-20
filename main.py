@@ -210,58 +210,71 @@ with st.sidebar:
                         else:
                             st.error(api_error(response))
 
-        with st.expander("Catalog Reindexing", expanded=False):
-            # Check if background reindexing just finished
-            if st.session_state.get("reindex_running"):
-                status_resp = api_request("GET", "admin/reindex/status", headers=headers)
-                if status_resp is not None and status_resp.ok:
-                    curr_status = status_resp.json().get("status")
-                    if curr_status == "completed":
-                        st.session_state["reindex_running"] = False
-                        st.toast("Catalog reindexing completed! ✅")
-                    elif curr_status == "failed":
-                        st.session_state["reindex_running"] = False
-                        st.toast("Catalog reindexing failed ❌")
-
+        with st.expander("Catalog Reindexing", expanded=st.session_state.get("reindex_running", False)):
             col_act1, col_act2 = st.columns(2)
             with col_act1:
-                if st.button("Start Reindexing"):
+                if st.button("Start Reindexing", disabled=st.session_state.get("reindex_running", False)):
                     reindex_resp = api_request("POST", "admin/reindex", headers=headers)
                     if reindex_resp is not None and reindex_resp.status_code in (200, 202):
                         st.session_state["reindex_running"] = True
-                        st.success(reindex_resp.json().get("message", "Reindexing started!"))
+                        st.rerun()
                     elif reindex_resp is not None and reindex_resp.status_code == 409:
                         st.session_state["reindex_running"] = True
-                        st.warning("Reindexing is already in progress in the background.")
+                        st.warning("Reindexing is already in progress.")
+                        st.rerun()
                     else:
                         st.error(api_error(reindex_resp) if reindex_resp else "Request failed.")
 
             with col_act2:
-                if st.button("Check Status"):
-                    status_resp = api_request("GET", "admin/reindex/status", headers=headers)
-                    if status_resp is not None and status_resp.ok:
-                        s_info = status_resp.json()
-                        curr_status = s_info.get("status", "idle")
-                        if curr_status == "running":
-                            st.info(f"⏳ In Progress (Started: {s_info.get('started_at', '')[:19]})")
-                        elif curr_status == "completed":
-                            st.session_state["reindex_running"] = False
-                            st.toast("Catalog reindexing completed! ✅")
-                            summary = s_info.get("summary") or {}
-                            st.success(
-                                f"✅ Completed at {s_info.get('completed_at', '')[:19]}\n\n"
-                                f"Rows loaded: {summary.get('rows_loaded')}, "
-                                f"Rejected: {summary.get('rows_rejected')}, "
-                                f"Duplicates: {summary.get('duplicates_removed')}"
-                            )
-                        elif curr_status == "failed":
-                            st.session_state["reindex_running"] = False
-                            st.toast("Catalog reindexing failed ❌")
-                            st.error(f"❌ Failed: {s_info.get('error')}")
-                        else:
-                            st.write("Status: Idle (No active reindexing)")
+                check_status_clicked = st.button("Check Status")
+
+            if st.session_state.get("reindex_running") or check_status_clicked:
+                status_resp = api_request("GET", "admin/reindex/status", headers=headers)
+                if status_resp is not None and status_resp.ok:
+                    s_info = status_resp.json()
+                    curr_status = s_info.get("status", "idle")
+
+                    if curr_status == "running":
+                        st.session_state["reindex_running"] = True
+                        processed = int(s_info.get("processed", 0))
+                        total = int(s_info.get("total", 0))
+                        remaining = max(0, total - processed)
+                        fraction = min(1.0, max(0.0, processed / total)) if total > 0 else 0.0
+                        pct = int(fraction * 100)
+                        bar_text = (
+                            f"{pct}% completed - {processed:,} / {total:,} done ({remaining:,} remaining)"
+                            if total > 0
+                            else "Indexing catalog products..."
+                        )
+                        st.progress(fraction, text=bar_text)
+                        st.caption(f"⏳ In Progress — Started: {s_info.get('started_at', '')[:19]}")
+
+                        import time
+                        time.sleep(1)
+                        st.rerun()
+
+                    elif curr_status == "completed":
+                        st.session_state["reindex_running"] = False
+                        summary = s_info.get("summary") or {}
+                        total = s_info.get("total") or summary.get("rows_loaded", 0)
+                        st.progress(1.0, text=f"100% completed - {total:,} / {total:,} done (0 remaining)")
+                        st.success(
+                            f"✅ Reindexing completed at {s_info.get('completed_at', '')[:19]}\n\n"
+                            f"• Loaded: {summary.get('rows_loaded', 0):,}\n"
+                            f"• Rejected: {summary.get('rows_rejected', 0):,}\n"
+                            f"• Duplicates: {summary.get('duplicates_removed', 0):,}"
+                        )
+
+                    elif curr_status == "failed":
+                        st.session_state["reindex_running"] = False
+                        st.error(f"❌ Reindexing failed: {s_info.get('error', 'Unknown error')}")
+
                     else:
-                        st.error("Could not fetch status.")
+                        st.write("Status: Idle (No active reindexing)")
+                else:
+                    st.error("Could not fetch status.")
+            else:
+                st.write("Status: Idle (No active reindexing)")
 
         with st.expander("View Audit Logs", expanded=False):
             if "audit_offset" not in st.session_state:

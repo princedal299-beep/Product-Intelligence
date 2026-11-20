@@ -102,6 +102,8 @@ def audit_endpoint(limit: int = 50, offset: int = 0, _=Depends(get_admin)):
 
 reindex_state = {
     "status": "idle",
+    "processed": 0,
+    "total": 0,
     "started_at": None,
     "completed_at": None,
     "error": None,
@@ -120,13 +122,25 @@ def _run_background_reindex(csv_path, rebuild_faiss: bool = True):
 
     reindex_state["status"] = "running"
     reindex_state["started_at"] = datetime.now(timezone.utc).isoformat()
+    reindex_state["completed_at"] = None
     reindex_state["error"] = None
+    reindex_state["processed"] = 0
+    reindex_state["total"] = 0
     logger.info("Background reindexing started with staging directory: %s", staging_dir)
+
+    def on_progress(processed: int, total: int):
+        global reindex_state
+        reindex_state["processed"] = processed
+        reindex_state["total"] = total
 
     try:
         if rebuild_faiss:
             from ingestion.build_faiss_index import build_catalog
-            summary = build_catalog(csv_path=csv_path, output_dir=staging_dir)
+            summary = build_catalog(
+                csv_path=csv_path,
+                output_dir=staging_dir,
+                progress_callback=on_progress,
+            )
         else:
             from ingestion.ingest import run_phase1_ingest
             summary = run_phase1_ingest(csv_path, staging_dir)
@@ -145,6 +159,8 @@ def _run_background_reindex(csv_path, rebuild_faiss: bool = True):
 
         reindex_state["status"] = "completed"
         reindex_state["completed_at"] = datetime.now(timezone.utc).isoformat()
+        reindex_state["processed"] = summary.rows_loaded
+        reindex_state["total"] = summary.rows_loaded
         reindex_state["summary"] = {
             "rows_read": summary.rows_read,
             "rows_loaded": summary.rows_loaded,

@@ -28,12 +28,20 @@ logger = logging.getLogger(__name__)
 DEFAULT_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 
 
-def build_faiss_index(repository, index_path, model_name, batch_size):
+def build_faiss_index(
+    repository,
+    index_path,
+    model_name=DEFAULT_MODEL,
+    batch_size=64,
+    progress_callback=None,
+    total=None,
+):
     import numpy as np
     from sentence_transformers import SentenceTransformer
 
     embedder = SentenceTransformer(model_name)
     index = None
+    processed = 0
 
     for batch in batched(repository.iter_search_records(batch_size), batch_size):
         batch = list(batch)
@@ -56,6 +64,10 @@ def build_faiss_index(repository, index_path, model_name, batch_size):
             np.asarray([fid for fid, _ in batch], dtype=np.int64),
         )
 
+        processed += len(batch)
+        if progress_callback:
+            progress_callback(processed=processed, total=total or processed)
+
     if index is None:
         raise ValueError("No valid products were found; FAISS index was not built.")
 
@@ -68,6 +80,7 @@ def build_catalog(
     output_dir=DEFAULT_OUTPUT_DIR,
     model_name=DEFAULT_MODEL,
     batch_size=64,
+    progress_callback=None,
 ):
     if csv_path is None:
         csv_path = find_feed()
@@ -90,7 +103,12 @@ def build_catalog(
         )
 
     indexed_count, dimension = build_faiss_index(
-        repository, index_path, model_name, batch_size
+        repository,
+        index_path,
+        model_name,
+        batch_size,
+        progress_callback=progress_callback,
+        total=loaded,
     )
     if indexed_count != loaded:
         raise ValueError(f"FAISS indexed {indexed_count} products; SQLite loaded {loaded}.")
