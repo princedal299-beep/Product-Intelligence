@@ -6,7 +6,7 @@ from api.keys.key_loader import PRIVATE_KEY, PUBLIC_KEY
 from api.roles import scopes_for_role
 
 ALGORITHM = "RS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "1440"))
+ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "60"))
 MCP_TOKEN_EXPIRE_SECONDS = int(os.getenv("MCP_TOKEN_EXPIRE_SECONDS", "60"))
 
 
