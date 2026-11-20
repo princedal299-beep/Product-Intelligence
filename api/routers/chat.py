@@ -3,6 +3,7 @@ import logging
 import re
 import uuid
 from typing import Optional
+import json
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
