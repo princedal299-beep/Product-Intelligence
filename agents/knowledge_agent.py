@@ -18,7 +18,6 @@ def load_knowledge_ques() -> dict:
 
 
 def get_help_documents() -> list[Document]:
-    """Parse knowledge base into structured documents with source metadata."""
     kb = load_knowledge_ques()
     docs = []
     knowledge_dict = kb.get("jewellery_knowledge", {}) if isinstance(kb, dict) else {}

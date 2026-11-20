@@ -22,7 +22,6 @@ def create_token(data: dict, expires_delta: timedelta | None = None) -> str:
 
 
 def create_user_token(user_id: int | str, role: str) -> str:
-    """Create a standard user session token."""
     return create_token({
         "user_id": user_id,
         "sub": str(user_id),
@@ -32,7 +31,6 @@ def create_user_token(user_id: int | str, role: str) -> str:
 
 
 def create_mcp_token(user_id: int | str, role: str) -> str:
-    """Create a short-lived token specifically scoped for MCP catalog tool calls."""
     return create_token(
         {
             "user_id": user_id,
@@ -46,7 +44,6 @@ def create_mcp_token(user_id: int | str, role: str) -> str:
 
 
 def decode_token(token: str) -> dict:
-    """Decode and validate a signed RS256 JWT token."""
     payload = jwt.decode(token, PUBLIC_KEY, algorithms=[ALGORITHM])
     user_id = payload.get("user_id")
     role = payload.get("role")

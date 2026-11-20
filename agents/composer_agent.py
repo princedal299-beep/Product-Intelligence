@@ -167,7 +167,6 @@ def compose_catalog_response(
                     key = (item.get("parent_sku") or item.get("title") or item.get("product_id") or "").strip().lower()
                     if key and key not in seen_items:
                         seen_items.add(key)
-                        # Strip heavy fields to keep token payload minimal
                         clean_item = {k: v for k, v in item.items() if k not in {"attributes_json", "search_text", "_rn"}}
                         if "description" in clean_item and isinstance(clean_item["description"], str) and len(clean_item["description"]) > 250:
                             clean_item["description"] = clean_item["description"][:250] + "..."

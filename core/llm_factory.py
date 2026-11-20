@@ -14,7 +14,6 @@ def get_llm(
 
     target_model = model_name or os.getenv("DEFAULT_LLM_MODEL", "gemini-3.5-flash-lite")
 
-    # 1. Gemini Models
     if target_model.startswith("gemini-"):
         api_key = os.getenv("GEMINI_API_KEY")
         if not api_key:
@@ -27,7 +26,6 @@ def get_llm(
             reasoning_effort="low",
         )
 
-    # 2. Groq Models
     api_key = os.getenv("GROQ_API_KEY")
     if not api_key:
         raise ValueError("GROQ_API_KEY is not configured in the environment.")
@@ -41,7 +39,6 @@ def get_llm(
 
 
 def extract_text_content(content) -> str:
-    """Extract clean string text from message content, handling both plain strings and Gemini block lists."""
     if isinstance(content, str):
         return content
     if isinstance(content, list):

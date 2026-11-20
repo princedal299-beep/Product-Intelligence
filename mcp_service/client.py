@@ -9,7 +9,6 @@ logger = logging.getLogger("mcp.client")
 
 
 def _unwrap_exception(exc: BaseException) -> BaseException:
-    """Extract root cause from nested BaseExceptionGroup/TaskGroup."""
     if hasattr(exc, "exceptions") and exc.exceptions:
         return _unwrap_exception(exc.exceptions[0])
     return exc

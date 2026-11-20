@@ -66,7 +66,6 @@ class UserRoleUpdate(BaseModel):
 
 @router.get("/users")
 def find_user(email: Optional[str] = None, _=Depends(get_admin)):
-    """Find a user by email address."""
     if not email or not email.strip():
         raise HTTPException(status_code=400, detail="Provide a valid email")
 
@@ -87,7 +86,6 @@ def find_user(email: Optional[str] = None, _=Depends(get_admin)):
 
 @router.patch("/users/{user_id}/role")
 def update_user_role(user_id: int, update: UserRoleUpdate, _=Depends(get_admin)):
-    """Update a user's role to Shopper or Merchandiser."""
     user = set_user_role(user_id, update.role)
     if user is None:
         raise HTTPException(status_code=404, detail="User not found.")
@@ -96,7 +94,6 @@ def update_user_role(user_id: int, update: UserRoleUpdate, _=Depends(get_admin))
 
 @router.get("/audit")
 def audit_endpoint(limit: int = 50, offset: int = 0, _=Depends(get_admin)):
-    """Admin endpoint to view query history and tools used."""
     return get_audit_logs(limit=limit, offset=offset)
 
 
@@ -239,5 +236,4 @@ def reindex_catalog(
 
 @router.get("/reindex/status")
 def reindex_status_endpoint(_=Depends(get_admin)):
-    """Check background reindexing status and metrics."""
     return reindex_state

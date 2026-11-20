@@ -39,6 +39,7 @@ def verify_numeric_and_stock_facts(
         return False, "No Response ."
     known_prices = set()
     known_stock = set()
+    known_counts = set()
     product_price_map = {}
     product_stock_map = {}
     for doc in documents:
@@ -55,12 +56,16 @@ def verify_numeric_and_stock_facts(
                                 items.extend(sub_val)
                         if item.get("product_count") is not None:
                             try:
-                                known_prices.add(float(item["product_count"]))
+                                cnt = int(item["product_count"])
+                                known_counts.add(cnt)
+                                known_prices.add(float(cnt))
                             except (ValueError, TypeError):
                                 pass
                         if item.get("missing_price_count") is not None:
                             try:
-                                known_prices.add(float(item["missing_price_count"]))
+                                cnt = int(item["missing_price_count"])
+                                known_counts.add(cnt)
+                                known_prices.add(float(cnt))
                             except (ValueError, TypeError):
                                 pass
                         price_val = None
@@ -97,7 +102,6 @@ def verify_numeric_and_stock_facts(
                     continue
             return False, f"cited price ${price:.2f} does not match any product in data"
 
-    # Cross-product price and stock mismatch check (prevent swapping)
     gen_lower = generation.lower()
     prod_positions = []
     for prod in set(product_price_map.keys()) | set(product_stock_map.keys()):
@@ -110,14 +114,12 @@ def verify_numeric_and_stock_facts(
         next_pos = prod_positions[i + 1][0] if i + 1 < len(prod_positions) else len(gen_lower)
         segment = gen_lower[pos:next_pos]
 
-        # Check price in product's section
         if prod in product_price_map:
             correct_price = product_price_map[prod]
             segment_prices = _extract_prices(segment)
             if segment_prices and not any(abs(p - correct_price) < 0.05 for p in segment_prices):
                 return False, f"Price mismatch for '{prod}': expected ${correct_price:.2f}"
 
-        # Check stock in product's section
         if prod in product_stock_map:
             correct_stock = product_stock_map[prod]
             claimed_in_stock = ("in stock" in segment) or ("available" in segment and "not available" not in segment)
@@ -126,6 +128,21 @@ def verify_numeric_and_stock_facts(
                 return False, f"Stock mismatch for '{prod}': claimed 'in stock' but data says out of stock"
             if correct_stock == "in stock" and claimed_out_of_stock:
                 return False, f"Stock mismatch for '{prod}': claimed 'out of stock' but data says in stock"
+
+    # Count verification for analytics and count queries
+    if known_counts:
+        count_matches = re.findall(
+            r"(?:^|\b)(\d[\d,]*)\s*(?:products?|items?|rings?|necklaces?|earrings?|pendants?|bracelets?|bands?|pieces?|results?|records?)\b",
+            generation,
+            re.IGNORECASE,
+        )
+        for c_str in count_matches:
+            try:
+                stated_count = int(c_str.replace(",", ""))
+                if stated_count not in known_counts:
+                    return False, f"Stated count '{stated_count:,}' does not match catalog data (expected {sorted(known_counts)})."
+            except ValueError:
+                pass
 
     return True, "Code check passed."
 

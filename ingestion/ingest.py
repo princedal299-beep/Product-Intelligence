@@ -336,7 +336,6 @@ def run_phase1_ingest(csv_path=None, output_dir=None):
 
     summary = IngestionSummary()
     repository = ProductRepository(database_path)
-    #valid_product_from csv -> replace products -> loaded
     loaded = repository.replace_products(
         valid_products_from_csv(csv_path, rejects_path, summary)
     )

@@ -1,4 +1,3 @@
-"""Authentication and user session endpoints."""
 
 import logging
 import os
@@ -36,7 +35,6 @@ class UserCreate(BaseModel):
 
 @router.post("/register", status_code=status.HTTP_201_CREATED)
 def register(user: UserCreate):
-    """Register a new Shopper account."""
     try:
         created_user = create_user(user.email, user.password)
     except ValueError as exc:
@@ -91,19 +89,16 @@ def _process_login(form_data: OAuth2PasswordRequestForm):
 
 @router.post("/Login")
 def login_legacy(form_data: OAuth2PasswordRequestForm = Depends()):
-    """OAuth2 password login endpoint (legacy /Login)."""
     return _process_login(form_data)
 
 
 @router.post("/login")
 def login_standard(form_data: OAuth2PasswordRequestForm = Depends()):
-    """Standard REST login endpoint (/login)."""
     return _process_login(form_data)
 
 
 @router.post("/mcp-token")
 def issue_mcp_token(user=Depends(verify_token)):
-    """Issue a short-lived token specifically scoped for MCP tool calls."""
     return {
         "access_token": create_mcp_token(user["user_id"], user["role"]),
         "token_type": "bearer",
@@ -112,7 +107,6 @@ def issue_mcp_token(user=Depends(verify_token)):
 
 @router.get("/me")
 def get_current_user_profile(user=Depends(verify_token)):
-    """Get the profile of the currently logged in user."""
     user_id = user.get("user_id")
     role = user.get("role")
     if str(user_id) == "admin":

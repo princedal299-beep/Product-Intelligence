@@ -43,7 +43,6 @@ def resolve_active_product(query: str, active_results: list[dict]) -> dict | Non
         return None
     q = query.lower().strip()
 
-    # Match numeric position (#1, item 2, choice 3, 1st, 2nd, etc.)
     m = re.search(r"\b([1-5])(?:st|nd|rd|th)?\b", q)
     if m:
         try:
@@ -184,7 +183,6 @@ def route_query(state):
         if filter_dict:
             result["filters"] = clean_product_filters(filter_dict, state.get("query", ""))
 
-    # Pure numeric price regex fallback (supports both "$600" and "600$"):
     raw_lower = (state.get("query") or "").lower()
     if route == "product_search":
         result.setdefault("filters", {})
@@ -203,7 +201,6 @@ def route_query(state):
                 except ValueError:
                     pass
 
-    # Contextual active product resolution:
     raw_query = state.get("query", "").strip()
     active_results = state.get("active_results", [])
     ref_item = resolve_active_product(raw_query, active_results)

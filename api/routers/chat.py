@@ -101,7 +101,6 @@ async def chat_endpoint(
     answer = workflow_result.get("generation", "No response generated.")
 
     
-    # Step 3: Determine sources for response
     sources = []
     if (
         "I can't help with that request" not in answer
@@ -118,10 +117,8 @@ async def chat_endpoint(
         elif plan in {"product_search", "product_details", "catalog_analytics"}:
             sources = ["catalog.sqlite3"]
 
-    # Step 4: Record audit log
     record_audit(request_id, str(user_id), role, query, plan or "product_search")
 
-    # Step 5: Return streaming or direct JSON response
     if chat_req.stream or request.headers.get("accept") in {"text/event-stream", "text/plain"}:
         async def stream_generator():
             for line in answer.splitlines(keepends=True):
