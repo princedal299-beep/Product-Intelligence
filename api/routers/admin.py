@@ -182,7 +182,6 @@ def _run_background_reindex(csv_path, rebuild_faiss: bool = True):
 
 @router.post("/reindex")
 def reindex_catalog(
-    background_tasks: BackgroundTasks,
     rebuild_faiss: bool = True,
     _=Depends(get_admin),
 ):
@@ -207,7 +206,15 @@ def reindex_catalog(
             detail=f"Feed detection failed: {exc}",
         ) from exc
 
-    background_tasks.add_task(_run_background_reindex, csv_path, rebuild_faiss)
+    import threading
+
+    reindex_thread = threading.Thread(
+        target=_run_background_reindex,
+        args=(csv_path, rebuild_faiss),
+        daemon=True,
+        name="catalog-reindex-worker",
+    )
+    reindex_thread.start()
 
     return JSONResponse(
         status_code=status.HTTP_202_ACCEPTED,

@@ -69,6 +69,10 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         self.request_timestamps = {}
 
     async def dispatch(self, request: Request, call_next):
+        # Exclude background job status polling from user action rate limiting
+        if request.url.path == "/admin/reindex/status":
+            return await call_next(request)
+
         client_ip = request.client.host if request.client else "unknown"
         forwarded = request.headers.get("x-forwarded-for")
         if forwarded:
