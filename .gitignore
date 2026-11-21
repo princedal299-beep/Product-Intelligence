@@ -11,7 +11,7 @@ logs/
 .pytest_cache/
 .deepeval/
 data/
-
+.github/workflows/
 # Virtual Environments
 venv/
 .venv/
